@@ -10,6 +10,7 @@
 using namespace std;
 
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
+const double EPSILON = 1e-6;
 
 string ReadLine() {
     string s;
@@ -79,13 +80,13 @@ public:
     }
 
     template <typename Predicate>
-    vector<Document> FindTopDocuments(const string& raw_query, Predicate function) const {            
+    vector<Document> FindTopDocuments(const string& raw_query, Predicate predicate) const {            
         const auto query = ParseQuery(raw_query);
-        auto matched_documents = FindAllDocuments(query, function);
+        auto matched_documents = FindAllDocuments(query, predicate);
         
         sort(matched_documents.begin(), matched_documents.end(),
              [](const Document& lhs, const Document& rhs) {
-                if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
+                if (abs(lhs.relevance - rhs.relevance) < EPSILON) {
                     return lhs.rating > rhs.rating;
                 } else {
                     return lhs.relevance > rhs.relevance;
@@ -216,7 +217,7 @@ private:
     }
     
     template <typename Predicate>
-    vector<Document> FindAllDocuments(const Query& query, Predicate function) const {
+    vector<Document> FindAllDocuments(const Query& query, Predicate predicate) const {
         map<int, double> document_to_relevance;
         for (const string& word : query.plus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
@@ -225,7 +226,7 @@ private:
             const double inverse_document_freq = ComputeWordInverseDocumentFreq(word);
             for (const auto [document_id, term_freq] : word_to_document_freqs_.at(word)) {
                 const auto& document_data = documents_.at(document_id);
-                if (function(document_id, document_data.status, document_data.rating)) {
+                if (predicate(document_id, document_data.status, document_data.rating)) {
                     document_to_relevance[document_id] += term_freq * inverse_document_freq;
                 }
             }
