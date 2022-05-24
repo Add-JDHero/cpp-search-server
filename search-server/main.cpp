@@ -10,6 +10,7 @@
 using namespace std;
 
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
+const double EPSILON = 1e-6;
 
 string ReadLine() {
     string s;
@@ -78,12 +79,13 @@ enum class DocumentStatus {
 
 class SearchServer {
 public:
-    
     template <typename StringContainer>
     explicit SearchServer(const StringContainer& stop_words)
         : stop_words_(MakeUniqueNonEmptyStrings(stop_words))  // Extract non-empty stop words
     {
-        IsValidStopWords(stop_words);
+        if (!all_of(stop_words_.begin(), stop_words_.end(), IsValidWord)) {
+            throw invalid_argument("Some of stop words are invalid"s);
+        }
     }
 
     explicit SearchServer(const string& stop_words_text)
@@ -91,15 +93,11 @@ public:
     {
     }
 
-
     void AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
         if ((document_id < 0) || (documents_.count(document_id) > 0)) {
-            throw invalid_argument("Invalid document id"s);
+            throw invalid_argument("Invalid document_id"s);
         }
-        vector<string> words;
-        if (!SplitIntoWordsNoStop(document, words)) {
-            throw invalid_argument("Invalid character in the document name"s);
-        }
+        const auto words = SplitIntoWordsNoStop(document);
 
         const double inv_word_count = 1.0 / words.size();
         for (const string& word : words) {
@@ -111,12 +109,12 @@ public:
 
     template <typename DocumentPredicate>
     vector<Document> FindTopDocuments(const string& raw_query, DocumentPredicate document_predicate) const {
-        Query query = ParseQuery(raw_query);
-        
+        const auto query = ParseQuery(raw_query);
+
         auto matched_documents = FindAllDocuments(query, document_predicate);
 
         sort(matched_documents.begin(), matched_documents.end(), [](const Document& lhs, const Document& rhs) {
-            if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
+            if (abs(lhs.relevance - rhs.relevance) < EPSILON) {
                 return lhs.rating > rhs.rating;
             } else {
                 return lhs.relevance > rhs.relevance;
@@ -130,11 +128,9 @@ public:
     }
 
     vector<Document> FindTopDocuments(const string& raw_query, DocumentStatus status) const {
-        return FindTopDocuments(
-            raw_query,
-            [status](int document_id, DocumentStatus document_status, int rating) {
-                return document_status == status;
-            });
+        return FindTopDocuments(raw_query, [status](int document_id, DocumentStatus document_status, int rating) {
+            return document_status == status;
+        });
     }
 
     vector<Document> FindTopDocuments(const string& raw_query) const {
@@ -146,15 +142,12 @@ public:
     }
 
     int GetDocumentId(int index) const {
-        if (index >= 0 && index < GetDocumentCount()) {
-            return document_ids_[index];
-        }
-        throw out_of_range("Invalid document id"s);
+        return document_ids_.at(index);
     }
 
-   tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const {
-        Query query = ParseQuery(raw_query);
-        
+    tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const {
+        const auto query = ParseQuery(raw_query);
+
         vector<string> matched_words;
         for (const string& word : query.plus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
@@ -173,8 +166,7 @@ public:
                 break;
             }
         }
-
-        return tuple{matched_words, documents_.at(document_id).status};
+        return {matched_words, documents_.at(document_id).status};
     }
 
 private:
@@ -197,29 +189,18 @@ private:
             return c >= '\0' && c < ' ';
         });
     }
-    
-    template <typename Container>
-    void IsValidStopWords(const Container& stop_words) {
-        for (const auto& word: stop_words) {
-            if (!IsValidWord(word)) {
-                throw invalid_argument("Invalid argument"s);
-            }
-        }
-    }
 
-    [[nodiscard]] bool SplitIntoWordsNoStop(const string& text, vector<string>& result) const {
-        result.clear();
+    vector<string> SplitIntoWordsNoStop(const string& text) const {
         vector<string> words;
         for (const string& word : SplitIntoWords(text)) {
             if (!IsValidWord(word)) {
-                return false;
+                throw invalid_argument("Word "s + word + " is invalid"s);
             }
             if (!IsStopWord(word)) {
                 words.push_back(word);
             }
         }
-        result.swap(words);
-        return true;
+        return words;
     }
 
     static int ComputeAverageRating(const vector<int>& ratings) {
@@ -239,17 +220,21 @@ private:
         bool is_stop;
     };
 
-    QueryWord ParseQueryWord(string text) const {
-        bool is_minus = false;
-        if (text[0] == '-') {
-            is_minus = true;
-            text = text.substr(1);
+    QueryWord ParseQueryWord(const string& text) const {
+        if (text.empty()) {
+            throw invalid_argument("Query word is empty"s);
         }
-        if (text.empty() || text[0] == '-' || !IsValidWord(text)) {
-            throw invalid_argument("Invalid query word"s);
+        string word = text;
+        bool is_minus = false;
+        if (word[0] == '-') {
+            is_minus = true;
+            word = word.substr(1);
+        }
+        if (word.empty() || word[0] == '-' || !IsValidWord(word)) {
+            throw invalid_argument("Query word "s + text + " is invalid");
         }
 
-        return QueryWord{text, is_minus, IsStopWord(text)};
+        return {word, is_minus, IsStopWord(word)};
     }
 
     struct Query {
@@ -260,8 +245,7 @@ private:
     Query ParseQuery(const string& text) const {
         Query result;
         for (const string& word : SplitIntoWords(text)) {
-            QueryWord query_word = ParseQueryWord(word);
-            
+            const auto query_word = ParseQueryWord(word);
             if (!query_word.is_stop) {
                 if (query_word.is_minus) {
                     result.minus_words.insert(query_word.data);
