@@ -6,6 +6,7 @@
 #include "search_server.h"
 #include "paginator.h"
 #include "request_queue.h"
+#include "log_duration.h"
 
 using namespace std;
 
@@ -19,13 +20,19 @@ int main() {
     search_server.AddDocument(4, "большой пёс скворец евгений"s, DocumentStatus::ACTUAL, {1, 3, 2});
     search_server.AddDocument(5, "большой пёс скворец василий"s, DocumentStatus::ACTUAL, {1, 1, 1});
 
-    const auto search_results = search_server.FindTopDocuments("пушистый пёс"s);
-    int page_size = 2;
-    const auto pages = Paginate(search_results, page_size);
+    vector<Document> search_results;
+    {
+        LogDuration guard("Operation time"s, cout);
+        search_results = search_server.FindTopDocuments("пушистый -кот"s);
+    
 
-    // Выводим найденные документы по страницам
-    for (auto page = pages.begin(); page != pages.end(); ++page) {
-        cout << *page << endl;
-        cout << "Разрыв страницы"s << endl;
+        int page_size = 2;
+        const auto pages = Paginate(search_results, page_size);
+
+        // Выводим найденные документы по страницам
+        for (auto page = pages.begin(); page != pages.end(); ++page) {
+            cout << *page << endl;
+            cout << "Разрыв страницы"s << endl;
+        }
     }
 }
