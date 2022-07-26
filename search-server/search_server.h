@@ -32,9 +32,19 @@ public:
     std::vector<Document> FindTopDocuments(const std::string& raw_query) const;
 
     int GetDocumentCount() const;
-    int GetDocumentId(int index) const;
+    
+    std::set<int>::const_iterator begin() {
+        return document_ids_.begin();
+    }
+
+    std::set<int>::const_iterator end() {
+        return document_ids_.end();
+    }
 
     std::tuple<std::vector<std::string>, DocumentStatus> MatchDocument(const std::string& raw_query, int document_id) const;
+    const std::map<std::string, double>& GetWordFrequencies(int document_id) const;
+
+    void RemoveDocument(int document_id);
 
 private:
     struct DocumentData {
@@ -44,7 +54,8 @@ private:
     const std::set<std::string> stop_words_;
     std::map<std::string, std::map<int, double>> word_to_document_freqs_;
     std::map<int, DocumentData> documents_;
-    std::vector<int> document_ids_;
+    std::set<int> document_ids_;
+    std::map<int, std::map<std::string, double>> document_to_word_freqs_;
 
     bool IsStopWord(const std::string& word) const;
     static bool IsValidWord(const std::string& word);
@@ -134,5 +145,5 @@ template <typename DocumentPredicate>
         return matched_documents;
     }
 
-
-
+void AddDocument(SearchServer& search_server, int document_id, const std::string& document, DocumentStatus status,
+    const std::vector<int>& ratings);

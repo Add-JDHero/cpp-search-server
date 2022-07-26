@@ -9,17 +9,21 @@ SearchServer::SearchServer(const string& stop_words_text)
 }
 
 void SearchServer::AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
-    if ((document_id < 0) || (documents_.count(document_id) > 0)) {
+    if (!IsValidWord(document)) {
+        throw invalid_argument("Document contains special symbols"s);
+    } 
+    else if ((document_id < 0) || (documents_.count(document_id) > 0)) {
         throw invalid_argument("Invalid document_id"s);
     }
     const auto words = SplitIntoWordsNoStop(document);
 
-    const double inv_word_count = 1.0 / words.size();
+    const double inv_word_count = 1.0 / static_cast<int>(words.size());
     for (const string& word : words) {
         word_to_document_freqs_[word][document_id] += inv_word_count;
+        document_to_word_freqs_[document_id][word] += inv_word_count;
     }
     documents_.emplace(document_id, DocumentData{ComputeAverageRating(ratings), status});
-    document_ids_.push_back(document_id);
+    document_ids_.emplace(document_id);
 }
 
 vector<Document> SearchServer::FindTopDocuments(const string& raw_query, DocumentStatus status) const {
@@ -36,8 +40,23 @@ int SearchServer::GetDocumentCount() const {
     return documents_.size();
 }
 
-int SearchServer::GetDocumentId(int index) const {
-    return document_ids_.at(index);
+const map<string, double>& SearchServer::GetWordFrequencies(int document_id) const {
+    static const map<string, double> empty_words = {};
+
+    if (document_to_word_freqs_.count(document_id)) {
+        return document_to_word_freqs_.at(document_id);
+    } else {
+        return empty_words;
+    }      
+}
+
+void SearchServer::RemoveDocument(int document_id) {
+    for (auto& [word, freq]: document_to_word_freqs_.at(document_id)) {
+        word_to_document_freqs_.at(word).erase(document_id);        
+    }
+    document_to_word_freqs_.erase(document_id);  
+    document_ids_.erase(document_id);
+    documents_.erase(document_id);
 }
 
 tuple<vector<string>, DocumentStatus> SearchServer::MatchDocument(const string& raw_query, int document_id) const {
@@ -86,6 +105,11 @@ vector<string> SearchServer::SplitIntoWordsNoStop(const string& text) const {
         }
     }
     return words;
+}
+
+void AddDocument(SearchServer& search_server, int document_id, const string& document, DocumentStatus status,
+    const vector<int>& ratings) {
+    search_server.AddDocument(document_id, document, status, ratings);
 }
 
 int SearchServer::ComputeAverageRating(const vector<int>& ratings) {
