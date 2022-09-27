@@ -51,20 +51,20 @@ std::vector<Document> SearchServer::FindTopDocuments(std::string_view raw_query)
 }
 
 
-tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument(string_view raw_query, int document_id) const {
+SearchServer::matched_tuple SearchServer::MatchDocument(string_view raw_query, int document_id) const {
     return MatchDocument(execution::seq, raw_query, document_id);
 }
 
-tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument(const execution::sequenced_policy& policy, 
+SearchServer::matched_tuple SearchServer::MatchDocument(const execution::sequenced_policy& policy, 
                                                                  string_view raw_query, int document_id) const {
 
-    if (!document_ids_.count(document_id))
+    if (document_ids_.count(document_id) == 0)
     {
         using namespace std::string_literals;
         throw std::out_of_range("Sqe out of range"s);
     }
 
-    const auto query = ParseQuery(raw_query);
+    const auto query = ParseQuery(raw_query, true);
     auto status = documents_.at(document_id).status;
     std::vector<std::string_view> matched_words;
     for (const std::string_view word : query.minus_words) {
@@ -88,7 +88,7 @@ tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument(const exe
     return {matched_words, documents_.at(document_id).status};
 }
 
-tuple<vector<std::string_view>, DocumentStatus> SearchServer::MatchDocument(const std::execution::parallel_policy& policy, 
+SearchServer::matched_tuple SearchServer::MatchDocument(const std::execution::parallel_policy& policy, 
                                                                 std::string_view raw_query, int document_id) const {
     
     if (!document_ids_.count(document_id))
@@ -97,7 +97,7 @@ tuple<vector<std::string_view>, DocumentStatus> SearchServer::MatchDocument(cons
         throw std::out_of_range("Par out of range"s);
     }
 
-    auto query = ParseQuery(policy, raw_query);
+    auto query = ParseQuery(raw_query, false);
     const auto status = documents_.at(document_id).status;
     const auto word_checker = [this, document_id](const std::string_view word) {
         const auto it = word_to_document_freqs_.find(string(word));
@@ -217,8 +217,8 @@ SearchServer::QueryWord SearchServer::ParseQueryWord(string_view text) const {
     return {word, is_minus, IsStopWord(word)};
 }
 
-SearchServer::Query1 SearchServer::ParseQuery(string_view text) const {
-    Query1 result;
+SearchServer::Query SearchServer::ParseQuery(string_view text, bool sort_flag) const {
+    Query result;
     
     for (const std::string_view word : SplitIntoWords(text)) {
         const auto query_word = ParseQueryWord(word);
@@ -231,36 +231,19 @@ SearchServer::Query1 SearchServer::ParseQuery(string_view text) const {
         }
     }
 
-    sort(execution::seq, result.minus_words.begin(), result.minus_words.end());
-    sort(execution::seq, result.plus_words.begin(), result.plus_words.end());
+    if (sort_flag) {
+        sort(execution::seq, result.minus_words.begin(), result.minus_words.end());
+        sort(execution::seq, result.plus_words.begin(), result.plus_words.end());
 
-    auto it1 = unique(execution::seq, result.minus_words.begin(), result.minus_words.end());
-    auto it2 = unique(execution::seq, result.plus_words.begin(), result.plus_words.end());
+        auto it1 = unique(execution::seq, result.minus_words.begin(), result.minus_words.end());
+        auto it2 = unique(execution::seq, result.plus_words.begin(), result.plus_words.end());
 
-    result.minus_words.erase(it1, result.minus_words.end());
-    result.plus_words.erase(it2, result.plus_words.end());
-
-    return result;
-}
-
-SearchServer::Query1 SearchServer::ParseQuery(const execution::parallel_policy& policy,
-                                             string_view text) const {
-    Query1 result;
-
-    for (const std::string_view word : SplitIntoWords(text)) {
-        const auto query_word = ParseQueryWord(word);
-        if (!query_word.is_stop) {
-            if (query_word.is_minus) {
-                result.minus_words.push_back(query_word.data);
-            } else {
-                result.plus_words.push_back(query_word.data);
-            }
-        }
+        result.minus_words.erase(it1, result.minus_words.end());
+        result.plus_words.erase(it2, result.plus_words.end());
     }
-
+   
     return result;
 }
-
 
 // Existence required
 double SearchServer::ComputeWordInverseDocumentFreq(const string_view word) const {
